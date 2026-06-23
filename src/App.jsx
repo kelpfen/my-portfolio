@@ -8,7 +8,7 @@ const fifaMatches = [
 ]
 
 const footballDataToken = import.meta.env.VITE_FOOTBALL_DATA_TOKEN
-const footballDataUrl = '/api-football/competitions/WC/matches?season=2026'
+const footballDataUrl = 'https://corsproxy.io/?' + encodeURIComponent('https://api.football-data.org/v4/competitions/WC/matches?season=2026')
 
 const malaysiaTimeFormatter = new Intl.DateTimeFormat('en-MY', {
   timeZone: 'Asia/Kuala_Lumpur',
