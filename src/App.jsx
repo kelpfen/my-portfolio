@@ -1,154 +1,339 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
+
+const fifaMatches = [
+  { home: 'Mexico', guest: 'South Africa', homeScore: 2, guestScore: 0, time: 'Jun 12, 2026, 3:00 AM MYT', status: 'Final' },
+  { home: 'Canada', guest: 'Bosnia and Herzegovina', homeScore: 1, guestScore: 1, time: 'Jun 13, 2026, 3:00 AM MYT', status: 'Final' },
+  { home: 'USA', guest: 'Paraguay', homeScore: 4, guestScore: 1, time: 'Jun 13, 2026, 8:00 AM MYT', status: 'Final' },
+
+]
+
+const footballDataToken = import.meta.env.VITE_FOOTBALL_DATA_TOKEN
+const footballDataUrl = '/api-football/competitions/WC/matches?season=2026'
+
+const malaysiaTimeFormatter = new Intl.DateTimeFormat('en-MY', {
+  timeZone: 'Asia/Kuala_Lumpur',
+  month: 'short',
+  day: 'numeric',
+  year: 'numeric',
+  hour: 'numeric',
+  minute: '2-digit',
+  hour12: true,
+  timeZoneName: 'short',
+})
+
+const getMatchStatus = (status) => {
+  if (status === 'FINISHED') return 'Final'
+  if (['IN_PLAY', 'LIVE', 'PAUSED'].includes(status)) return 'Current'
+  return 'Scheduled'
+}
+
+const getScoreValue = (score, side) => (
+  score?.fullTime?.[side] ??
+  score?.regularTime?.[side] ??
+  score?.halfTime?.[side] ??
+  null
+)
+
+const mapFootballDataMatch = (match) => ({
+  home: match.homeTeam?.shortName || match.homeTeam?.name || 'TBD',
+  guest: match.awayTeam?.shortName || match.awayTeam?.name || 'TBD',
+  homeScore: getScoreValue(match.score, 'home'),
+  guestScore: getScoreValue(match.score, 'away'),
+  time: malaysiaTimeFormatter.format(new Date(match.utcDate)),
+  rawUtcDate: match.utcDate,
+  status: getMatchStatus(match.status),
+})
+
+const themeStyles = {
+  light: {
+    page: 'bg-slate-50 text-slate-950 selection:bg-teal-200 selection:text-slate-950',
+    header: 'bg-white/80 border-slate-200/80',
+    panel: 'border-slate-200 bg-white/80',
+    inactiveControl: 'text-slate-500 hover:text-slate-950',
+    sectionText: 'text-slate-600',
+    card: 'bg-white/80 border-slate-200 hover:border-teal-400/70 shadow-slate-200/80',
+    mutedText: 'text-slate-600',
+    tag: 'bg-slate-100 text-slate-700',
+    footer: 'border-slate-200 bg-white',
+    footerText: 'text-slate-500',
+  },
+  dark: {
+    page: 'bg-slate-950 text-slate-100 selection:bg-teal-500 selection:text-slate-900',
+    header: 'bg-slate-950/70 border-slate-800/50',
+    panel: 'border-slate-800 bg-slate-900/70',
+    inactiveControl: 'text-slate-400 hover:text-slate-100',
+    sectionText: 'text-slate-400',
+    card: 'bg-slate-900/50 border-slate-800/60 hover:border-teal-500/40 shadow-slate-950/40',
+    mutedText: 'text-slate-400',
+    tag: 'bg-slate-800 text-slate-300',
+    footer: 'border-slate-900 bg-slate-950',
+    footerText: 'text-slate-500',
+  },
+}
+
+const filterOptions = [
+  { key: 'all', label: 'All Matches' },
+  { key: 'matched', label: 'Matched' },
+  { key: 'upcoming', label: 'Upcoming / Live' },
+  { key: 'favorites', label: 'Favorites ⭐' },
+]
 
 export default function App() {
-  const [copied, setCopied] = useState(false)
+  const [theme, setTheme] = useState('dark')
+  const [matches, setMatches] = useState(fifaMatches)
+  const [matchDataStatus, setMatchDataStatus] = useState(footballDataToken ? 'Loading live data...' : 'Showing sample data')
+  const [filterStatus, setFilterStatus] = useState('all')
 
-  const handleCopyEmail = () => {
-    // 💡 记得把这里换成你的真实工作邮箱
-    navigator.clipboard.writeText("your.email@example.com")
-    setCopied(true)
-    setTimeout(() => setCopied(false), 2000)
+  // 💾 Enhanced Initialization: Grab stored items from LocalStorage on mount
+  const [favorites, setFavorites] = useState(() => {
+    const savedFavorites = localStorage.getItem('fifa_report_favorites')
+    return savedFavorites ? JSON.parse(savedFavorites) : []
+  })
+
+  const colors = themeStyles[theme]
+  const finalMatches = matches.filter((match) => match.status === 'Final').length
+  const activeMatches = matches.length - finalMatches
+
+  // 💾 Side-Effect Syncing: Write changes straight to LocalStorage whenever favorites array mutates
+  useEffect(() => {
+    localStorage.setItem('fifa_report_favorites', JSON.stringify(favorites))
+  }, [favorites])
+
+  const toggleFavorite = (match) => {
+    const matchId = `${match.home}-${match.guest}-${match.time}`
+    setFavorites((prevFavs) =>
+      prevFavs.includes(matchId)
+        ? prevFavs.filter((id) => id !== matchId)
+        : [...prevFavs, matchId]
+    )
   }
 
+  const sendToGoogleCalendar = (match) => {
+    const title = encodeURIComponent(`🏆 FIFA 2026: ${match.home} vs ${match.guest}`)
+    const details = encodeURIComponent(`Live Match tracked by FIFA.report.\nTime: ${match.time}`)
+
+    const startTime = match.rawUtcDate
+      ? new Date(match.rawUtcDate).toISOString().replace(/-|:|\.\d\d\d/g, "")
+      : new Date().toISOString().replace(/-|:|\.\d\d\d/g, "")
+
+    const endTimeDate = match.rawUtcDate ? new Date(match.rawUtcDate) : new Date()
+    endTimeDate.setHours(endTimeDate.getHours() + 2)
+    const endTime = endTimeDate.toISOString().replace(/-|:|\.\d\d\d/g, "")
+
+    const gCalUrl = `https://calendar.google.com/calendar/render?action=TEMPLATE&text=${title}&dates=${startTime}/${endTime}&details=${details}&sf=true&output=xml`
+    window.open(gCalUrl, '_blank')
+  }
+
+  const filteredMatches = matches.filter((match) => {
+    const matchId = `${match.home}-${match.guest}-${match.time}`
+    if (filterStatus === 'matched') return match.status === 'Final'
+    if (filterStatus === 'upcoming') return match.status === 'Scheduled' || match.status === 'Current'
+    if (filterStatus === 'favorites') return favorites.includes(matchId)
+    return true
+  })
+
+  const formatScore = (match) => (
+    match.homeScore === null || match.guestScore === null
+      ? 'TBD vs TBD'
+      : `${match.homeScore} vs ${match.guestScore}`
+  )
+
+  useEffect(() => {
+    if (!footballDataToken) return
+
+    const controller = new AbortController()
+
+    const loadMatches = async () => {
+      try {
+        const response = await fetch(footballDataUrl, {
+          headers: { 'X-Auth-Token': footballDataToken },
+          signal: controller.signal,
+        })
+
+        if (!response.ok) throw new Error(`football-data.org status: ${response.status}`)
+
+        const data = await response.json()
+        const apiMatches = [...(data.matches ?? [])]
+          .sort((a, b) => new Date(a.utcDate) - new Date(b.utcDate))
+          .map(mapFootballDataMatch)
+
+        if (apiMatches.length > 0) {
+          setMatches(apiMatches)
+          setMatchDataStatus('Live data from football-data.org')
+        }
+      } catch (error) {
+        if (error.name === 'AbortError') return
+        setMatchDataStatus('Live API unavailable - showing sample data')
+      }
+    }
+
+    loadMatches()
+    return () => controller.abort()
+  }, [])
+
+  const nextTheme = theme === 'dark' ? 'light' : 'dark'
+  const showActionsColumn = filterStatus === 'favorites'
+
   return (
-    <div className="min-h-screen bg-slate-950 text-slate-100 font-sans antialiased selection:bg-teal-500 selection:text-slate-900">
-      
-      {/* 1. 导航栏 */}
-      <header className="sticky top-0 z-50 backdrop-blur-md bg-slate-950/70 border-b border-slate-800/50">
-        <div className="max-w-5xl mx-auto px-6 h-16 flex items-center justify-between">
-          <span className="font-bold text-teal-400 tracking-tight text-lg">KP.dev</span>
-          <nav className="flex gap-6 text-sm font-medium text-slate-400">
-            <a href="#about" className="hover:text-teal-400 transition-colors">关于我</a>
-            <a href="#projects" className="hover:text-teal-400 transition-colors">精选项目</a>
-            <a href="#skills" className="hover:text-teal-400 transition-colors">核心技术</a>
-          </nav>
+    <div className={`min-h-screen font-sans antialiased transition-colors duration-300 flex flex-col justify-between ${colors.page}`}>
+      <header className={`sticky top-0 z-50 backdrop-blur-md border-b transition-colors duration-300 ${colors.header}`}>
+        <div className="max-w-5xl mx-auto px-6 h-16 flex items-center justify-between gap-4">
+          <span className="font-bold text-teal-500 tracking-tight text-lg">FIFA.report</span>
+          <button
+            type="button"
+            onClick={() => setTheme(nextTheme)}
+            className={`rounded-lg border px-3 py-2 text-xs font-semibold transition-colors ${colors.panel} ${colors.inactiveControl}`}
+          >
+            {theme === 'dark' ? 'Light' : 'Dark'}
+          </button>
         </div>
       </header>
 
-      {/* 主体核心内容 */}
-      <main className="max-w-5xl mx-auto px-6 py-12 space-y-32">
-        
-        {/* 2. 个人简介 (Hero Section) */}
-        <section id="about" className="py-12 md:py-20 space-y-6 max-w-3xl">
-          <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full text-xs font-medium bg-teal-500/10 text-teal-300 border border-teal-500/20">
-            🟢 随时可入职前端开发岗位
-          </div>
-          <h1 className="text-4xl md:text-6xl font-extrabold tracking-tight bg-gradient-to-r from-slate-100 via-slate-300 to-teal-400 bg-clip-text text-transparent leading-tight">
-            专注于构建高性能、响应式的 Web 交互体验。
-          </h1>
-          <p className="text-lg md:text-xl text-slate-400 leading-relaxed">
-            我是具备 **4年+ 商业项目经验** 的前端开发工程师，核心技术栈为 **React、JavaScript (ES6+) 和现代 CSS 架构**。擅长将复杂的设计稿转化为像素级还原、丝滑流畅的高性能用户界面。
-          </p>
-          <div className="pt-4 flex flex-wrap gap-4">
-            <button 
-              onClick={handleCopyEmail}
-              className="px-5 py-2.5 rounded-lg bg-teal-500 text-slate-950 font-semibold hover:bg-teal-400 transition-all active:scale-95 shadow-lg shadow-teal-500/10"
-            >
-              {copied ? "✓ 邮箱已复制！" : "联系我 (复制邮箱)"}
-            </button>
-            <a 
-              href="#projects" 
-              className="px-5 py-2.5 rounded-lg bg-slate-900 text-slate-300 border border-slate-800 font-semibold hover:bg-slate-800 hover:text-slate-100 transition-colors"
-            >
-              浏览项目
-            </a>
-          </div>
-        </section>
+      <main className="max-w-5xl mx-auto px-6 py-12 space-y-8 flex-grow w-full">
+        <div className="space-y-2">
+          <h1 className="text-3xl font-bold tracking-tight">FIFA 2026 Match Report</h1>
+          <p className={colors.sectionText}>Previous and current FIFA World Cup 2026 matches in the requested sequence.</p>
+          <p className="text-xs font-semibold text-teal-500">{matchDataStatus}</p>
+        </div>
 
-        {/* 3. 核心项目展示 (Projects Section) */}
-        <section id="projects" className="space-y-8">
-          <div className="space-y-2">
-            <h2 className="text-3xl font-bold tracking-tight">精选研发项目</h2>
-            <p className="text-slate-400">以下是我主导并成功交付的具备代表性的前端系统：</p>
+        {/* Status Cards */}
+        <div className="grid sm:grid-cols-4  gap-4">
+          <button onClick={() => setFilterStatus('all')} className={`text-left block rounded-lg border p-5 transition-all active:scale-98 ${colors.panel} ${filterStatus === 'all' ? 'border-teal-500 ring-1 ring-teal-500' : ''}`}>
+            <p className={`text-xs font-semibold uppercase ${colors.mutedText}`}>Matches tracked</p>
+            <p className="mt-2 text-3xl font-bold text-teal-500">{matches.length}</p>
+          </button>
+          <button onClick={() => setFilterStatus('matched')} className={`text-left block rounded-lg border p-5 transition-all active:scale-98 ${colors.panel} ${filterStatus === 'matched' ? 'border-teal-500 ring-1 ring-teal-500' : ''}`}>
+            <p className={`text-xs font-semibold uppercase ${colors.mutedText}`}>Final results</p>
+            <p className="mt-2 text-3xl font-bold text-teal-500">{finalMatches}</p>
+          </button>
+          <button onClick={() => setFilterStatus('upcoming')} className={`text-left block rounded-lg border p-5 transition-all active:scale-98 ${colors.panel} ${filterStatus === 'upcoming' ? 'border-teal-500 ring-1 ring-teal-500' : ''}`}>
+            <p className={`text-xs font-semibold uppercase ${colors.mutedText}`}>Current / scheduled</p>
+            <p className="mt-2 text-3xl font-bold text-teal-500">{activeMatches}</p>
+          </button>
+          <button onClick={() => setFilterStatus('favorites')} className={`text-left block rounded-lg border p-5 transition-all active:scale-98 ${colors.panel} ${filterStatus === 'favorites' ? 'border-teal-500 ring-1 ring-teal-500' : ''}`}>
+            <p className={`text-xs font-semibold uppercase ${colors.mutedText}`}>Favorites</p>
+            <p className="mt-2 text-3xl font-bold text-teal-500">{favorites.length}</p>
+          </button>
+        </div>
+
+        {/* Dynamic Category Selector Tabs */}
+        <div className="flex flex-wrap items-center justify-start gap-2 border-b border-slate-700/20 pb-1">
+          {filterOptions.map((opt) => {
+            const isFavTab = opt.key === 'favorites'
+            return (
+              <button
+                key={opt.key}
+                type="button"
+                onClick={() => setFilterStatus(opt.key)}
+                className={`px-4 py-2 text-xs font-bold rounded-md transition-all uppercase ${filterStatus === opt.key
+                    ? 'bg-teal-500 text-slate-950 shadow-md font-extrabold'
+                    : isFavTab && favorites.length > 0
+                      ? 'text-teal-400 border border-teal-500/30 hover:bg-teal-500/10'
+                      : `${colors.inactiveControl} hover:bg-slate-500/10`
+                  }`}
+              >
+                {opt.label}
+                {isFavTab && favorites.length > 0 && ` (${favorites.length})`}
+              </button>
+            )
+          })}
+        </div>
+
+        {/* Matches Table */}
+        <div className={`overflow-hidden rounded-lg border shadow-xl ${colors.card}`}>
+          <div className={`hidden md:grid gap-4 border-b px-5 py-3 text-xs font-bold uppercase ${colors.mutedText} ${showActionsColumn
+              ? 'grid-cols-[1.3fr_0.9fr_1.1fr_0.5fr_0.3fr_0.7fr]'
+              : 'grid-cols-[1.5fr_1fr_1fr_0.7fr_0.3fr]'
+            }`}>
+            <span>Home vs Guest</span>
+            <span>Home score vs Guest score</span>
+            <span>Date & time</span>
+            <span>Status</span>
+            <span className="text-center">Fav</span>
+            {showActionsColumn && <span className="text-right">Actions</span>}
           </div>
-          
-          <div className="grid md:grid-cols-2 gap-6">
-            {/* 项目 1 */}
-            <div className="group rounded-xl p-6 bg-slate-900/50 border border-slate-800/60 hover:border-teal-500/40 transition-all duration-300 shadow-xl flex flex-col justify-between">
-              <div className="space-y-4">
-                <div className="flex justify-between items-start">
-                  <h3 className="text-xl font-bold text-slate-100 group-hover:text-teal-400 transition-colors">智能植物监测数据可视化看板</h3>
-                  <span className="text-xs font-medium text-teal-400 bg-teal-400/10 px-2 py-0.5 rounded">AI / IoT 结合</span>
-                </div>
-                <p className="text-sm text-slate-400 leading-relaxed">
-                  基于 React 构建的大型物联网数据监控系统。深度整合 AI 图像识别技术，实现对植物健康状况的实时解析、自动化分类与动态数据追踪，帮助团队将核心数据处理效率显著提升。
-                </p>
-                <div className="flex flex-wrap gap-2 pt-2">
-                  {['React.js', 'Node.js', 'AI 图像识别', '实时数据流'].map((tech) => (
-                    <span key={tech} className="px-2.5 py-0.5 rounded bg-slate-800 text-xs text-slate-300 font-medium">{tech}</span>
-                  ))}
-                </div>
+
+          <div className="divide-y divide-slate-700/30">
+            {filteredMatches.length > 0 ? (
+              filteredMatches.map((match) => {
+                const matchId = `${match.home}-${match.guest}-${match.time}`
+                const isFav = favorites.includes(matchId)
+                const canFavorite = match.status !== 'Final'
+
+                return (
+                  <div key={matchId} className={`grid gap-3 px-5 py-4 md:items-center ${showActionsColumn
+                      ? 'md:grid-cols-[1.3fr_0.9fr_1.1fr_0.5fr_0.3fr_0.7fr]'
+                      : 'md:grid-cols-[1.5fr_1fr_1fr_0.7fr_0.3fr]'
+                    }`}>
+                    <div>
+                      <p className={`md:hidden text-[11px] font-bold uppercase ${colors.mutedText}`}>Home vs Guest</p>
+                      <p className="font-semibold">{match.home} vs {match.guest}</p>
+                    </div>
+                    <div>
+                      <p className={`md:hidden text-[11px] font-bold uppercase ${colors.mutedText}`}>Home score vs Guest score</p>
+                      <p className="font-mono text-lg font-bold text-teal-500">{formatScore(match)}</p>
+                    </div>
+                    <div>
+                      <p className={`md:hidden text-[11px] font-bold uppercase ${colors.mutedText}`}>Date & time</p>
+                      <p className={`text-sm ${colors.mutedText}`}>{match.time}</p>
+                    </div>
+                    <div>
+                      <p className={`md:hidden text-[11px] font-bold uppercase ${colors.mutedText}`}>Status</p>
+                      <span className={`w-fit rounded px-2.5 py-1 text-xs font-semibold block ${match.status === 'Final' ? colors.tag : 'bg-teal-500/10 text-teal-500'
+                        }`}>
+                        {match.status}
+                      </span>
+                    </div>
+                    {/* Star Favorite Mechanism */}
+                    <div className="flex md:justify-center items-center">
+                      {canFavorite ? (
+                        <button
+                          type="button"
+                          onClick={() => toggleFavorite(match)}
+                          className={`p-1 rounded text-lg transition-transform active:scale-90 ${isFav ? 'text-yellow-400 hover:text-yellow-500' : 'text-slate-400 hover:text-yellow-400'
+                            }`}
+                        >
+                          {isFav ? '★' : '☆'}
+                        </button>
+                      ) : (
+                        <span className="text-xs text-slate-500 select-none md:block hidden">-</span>
+                      )}
+                    </div>
+
+                    {/* Synchronized Action Panel Option */}
+                    {showActionsColumn && (
+                      <div className="flex md:justify-end items-center">
+                        <button
+                          type="button"
+                          onClick={() => sendToGoogleCalendar(match)}
+                          className="px-2.5 py-1 text-[11px] font-bold rounded border border-teal-500/40 bg-teal-500/10 text-teal-400 hover:bg-teal-500 hover:text-slate-950 transition-colors flex items-center gap-1 active:scale-95 shadow-sm"
+                        >
+                          <span>🗓️</span>
+                          <span>Sync Cal</span>
+                        </button>
+                      </div>
+                    )}
+                  </div>
+                )
+              })
+            ) : (
+              <div className={`px-5 py-12 text-center text-sm ${colors.mutedText}`}>
+                {filterStatus === 'favorites'
+                  ? 'Your favorites list is empty. Click ☆ on upcoming matches to add.'
+                  : 'No matches found for this filter.'}
               </div>
-            </div>
-
-            {/* 项目 2 */}
-            <div className="group rounded-xl p-6 bg-slate-900/50 border border-slate-800/60 hover:border-teal-500/40 transition-all duration-300 shadow-xl flex flex-col justify-between">
-              <div className="space-y-4">
-                <div className="flex justify-between items-start">
-                  <h3 className="text-xl font-bold text-slate-100 group-hover:text-teal-400 transition-colors">高性能高并发独立电商系统</h3>
-                  <span className="text-xs font-medium text-teal-400 bg-teal-400/10 px-2 py-0.5 rounded">全栈模拟架构</span>
-                </div>
-                <p className="text-sm text-slate-400 leading-relaxed">
-                  针对高转换率场景设计的完整电商解决方案。使用 React 进行严谨的状态管理，完美接入了安全的第三方支付网关（Payment Gateway），并针对动态商品列表与订单处理流水线进行了深度的响应速度优化。
-                </p>
-                <div className="flex flex-wrap gap-2 pt-2">
-                  {['React.js', '状态管理', '支付网关集成', 'RESTful API'].map((tech) => (
-                    <span key={tech} className="px-2.5 py-0.5 rounded bg-slate-800 text-xs text-slate-300 font-medium">{tech}</span>
-                  ))}
-                </div>
-              </div>
-            </div>
-          </div>
-        </section>
-
-        {/* 4. 技术栈分栏 (Skills Section) */}
-        <section id="skills" className="space-y-8">
-          <div className="space-y-2">
-            <h2 className="text-3xl font-bold tracking-tight">核心技术栈</h2>
-            <p className="text-slate-400">我熟练掌握并能够在实际业务中迅速上手的技术工具：</p>
-          </div>
-
-          <div className="grid sm:grid-cols-3 gap-6">
-            <div className="p-5 rounded-lg bg-slate-900/30 border border-slate-800/40 hover:border-slate-700/50 transition-colors">
-              <h4 className="font-semibold text-teal-400 mb-3">核心语言</h4>
-              <ul className="text-sm text-slate-400 space-y-2">
-                <li>• JavaScript (ES6+)</li>
-                <li>• HTML5 / CSS3 架构</li>
-                <li>• 响应式布局 (Flex / Grid)</li>
-              </ul>
-            </div>
-            <div className="p-5 rounded-lg bg-slate-900/30 border border-slate-800/40 hover:border-slate-700/50 transition-colors">
-              <h4 className="font-semibold text-teal-400 mb-3">框架与库</h4>
-              <ul className="text-sm text-slate-400 space-y-2">
-                <li>• React.js 核心生态</li>
-                <li>• Tailwind CSS 快速开发</li>
-                <li>• Next.js / 前端工程化基础</li>
-              </ul>
-            </div>
-            <div className="p-5 rounded-lg bg-slate-900/30 border border-slate-800/40 hover:border-slate-700/50 transition-colors">
-              <h4 className="font-semibold text-teal-400 mb-3">开发工具</h4>
-              <ul className="text-sm text-slate-400 space-y-2">
-                <li>• Git / GitHub 版本控制</li>
-                <li>• npm / Vite 构建工具</li>
-                <li>• RESTful API 联调经验</li>
-              </ul>
-            </div>
-          </div>
-        </section>
-
-      </main>
-
-      {/* 5. 页脚 */}
-      <footer className="border-t border-slate-900 mt-32 bg-slate-950">
-        <div className="max-w-5xl mx-auto px-6 py-12 flex flex-col sm:flex-row items-center justify-between gap-4 text-sm text-slate-500">
-          <p>© 2026 KP.dev. Powered by React & Tailwind CSS.</p>
-          <div className="flex gap-6">
-            <a href="#" className="hover:text-slate-300 transition-colors">GitHub</a>
-            <a href="#" className="hover:text-slate-300 transition-colors">LinkedIn</a>
+            )}
           </div>
         </div>
-      </footer>
 
+        <p className={`text-xs ${colors.mutedText}`}>Times are shown in UTC+8 (Malaysia time). Live data loads from football-data.org when a token is available.</p>
+      </main>
+
+      <footer className={`border-t mt-12 transition-colors duration-300 ${colors.footer}`}>
+        <div className={`max-w-5xl mx-auto px-6 py-8 flex flex-col sm:flex-row items-center justify-between gap-4 text-sm ${colors.footerText}`}>
+          <p>© 2026 FIFA World Cup Portal. Powered by React & Tailwind CSS.</p>
+        </div>
+      </footer>
     </div>
   )
 }
